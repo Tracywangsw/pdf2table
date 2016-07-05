@@ -1,0 +1,5 @@
+/lib
+/output
+/__pycache__
+/sample
+*.pyc
