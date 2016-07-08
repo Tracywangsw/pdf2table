@@ -4,145 +4,10 @@ import os
 import pdb
 import numpy as np
 import csv
+from py4j.java_gateway import JavaGateway
 
+hanlp = JavaGateway().entry_point
 excel_forbidden_sign = ['+','-']
-
-# return html pages
-def load_html(filename):
-  lines = []
-  with io.open(filename,'r',encoding='utf-8') as f:
-    for line in f:
-      lines.append(line.strip())
-  html = ''.join(lines)
-  soup = BeautifulSoup(html,'html.parser')
-  pages = soup.select("#page-container > div")
-  return pages
-
-def extract_text(page):
-  content_divs = page.select(".pc > div")
-  if not content_divs: return
-  text = ''
-  for div in content_divs:
-    div_class = div['class'] # list type
-    div_type = div_class[0]
-    if div_type == 't':
-      text += div.get_text()
-  return text
-
-def extract_table_divs(page):
-  content_divs = page.select(".pc > div")
-  if not content_divs: return
-  div_type_list = []
-  for div in content_divs:
-    div_class = div['class'] # list type
-    div_type = div_class[0]
-    div_type_list.append(div_type)
-  table_ranges = find_continue_list(div_type_list)
-  if not table_ranges: return
-  tables = []; description = ''
-  for r in table_ranges:
-    
-    tables.append(content_divs[r[0]:r[1]])
-  return tables
-
-# find table range,return the range [start:end] list of tables
-def find_continue_list(type_list):
-  table_range_list = []
-  if not type_list: return
-  start = 0
-  while start<len(type_list)-1:
-    # pdb.set_trace()
-    if type_list[start] == "c":
-      end = start+1
-      for j in range(start+1,len(type_list)):
-        if type_list[j] == "t":
-          end = j
-          if end - start > 1: table_range_list.append([start,end])
-          break
-      if j == len(type_list)-1:
-        if type_list[j] == "c": table_range_list.append([start,j+1])
-        break
-      start = end
-    start += 1
-  return table_range_list
-
-# remove the div neither x nor y is the same as the others'
-def remove_single_div(table_divs):
-  x_start = table_divs[0]['class'][1]
-  count_y = {}
-  count_x = {}
-  for div in table_divs:
-    x = div['class'][1]
-    y = div['class'][2]
-    if x not in count_x:
-      count_x[x] = 1
-    else:
-      count_x[x] += 1
-    if y not in count_y:
-      count_y[y] = 1
-    else:
-      count_y[y] += 1
-
-  break_point = []
-  i = 0
-  for div in table_divs:
-    x = div['class'][1]
-    y = div['class'][2]
-    if count_x[x] == 1 and count_y[y] == 1:
-      break_point.append(i)
-    i += 1
-
-  for j in range(len(break_point)):
-    p = break_point[j]
-    if j == len(break_point)-1: table_divs = table_divs[:p]
-    else: table_divs = table_divs[:p]+ table_divs[p+1:]
-  return table_divs
-
-# find the bound of the table
-def clean_table_divs(table_divs):
-  table_divs = remove_single_div(table_divs)
-  table,spare = [],[]
-  if table_divs:
-    first_x = table_divs[0]['class'][1]
-    first_x_point = []
-    for i in range(len(table_divs)):
-      div = table_divs[i]
-      x = div['class'][1]
-      y = div['class'][2]
-      if x == first_x:
-        first_x_point.append(i)
-    print('first_x_point: '+str(first_x_point))
-
-    # find the last cell of the table
-    if len(first_x_point)>1:
-      last_row_div = table_divs[first_x_point[-1]]
-      last_y = last_row_div['class'][2]
-      last_div_y = table_divs[-1]['class'][2]
-      end_point = first_x_point[-1]
-      if last_div_y == last_y: return table_divs,[]
-      for d in range(first_x_point[-1],len(table_divs)):
-        cur_y = table_divs[d]['class'][2]
-        pre_div_y = table_divs[d-1]['class'][2]
-        if cur_y != last_y and pre_div_y == last_y:
-          end_point = d
-      table = table_divs[:end_point]
-      spare = table_divs[end_point:]
-    else:
-      print('first_x_point is too small: '+str(first_x_point))
-  return table,spare
-
-def split_tables(spare):
-  tables = []
-  while len(spare)>1:
-    table,spare = clean_table_divs(spare)
-    if table: tables.append(table)
-  return tables
-
-def all_tables(table_divs):
-  table_divs = remove_single_div(table_divs)
-  tables = split_tables(table_divs)
-  return tables
-
 
 class Cell():
   def __init__(self,type,x,y,text):
@@ -345,18 +210,18 @@ class Table(object):
 class Pdf2Table(object):
   """docstring for Table"""
   def __init__(self,pdf_path):
-    self.pages = load_html(pdf_path)
+    self.pages = self.load_html(pdf_path)
     self.tables = self.__get_embedding_tables()
     self.text = self.__get_embedding_text()
 
   def __get_embedding_tables(self):
     page_tables = {} # rude_table per page
     for p in range(len(self.pages)):
-      rude_tables = extract_table_divs(self.pages[p])
+      rude_tables = self.extract_table_divs(self.pages[p])
       if rude_tables:
         page_tables[p] =[]
         for t in rude_tables:
-          page_tables[p].extend(all_tables(t))
+          page_tables[p].extend(self.all_tables(t))
 
     result = {} # all tables per page
     for page,tables in page_tables.items():
@@ -364,26 +229,176 @@ class Pdf2Table(object):
       for t in tables:
         # if page == 214: pdb.set_trace()
         t_matrix = Table(t).table2matrix()
+        # pdb.set_trace()
+        info = self.get_table_info(t,page)
         if page not in result:
-          result[page] = [t_matrix.tolist()]
+          result[page] = [(t_matrix.tolist(),info)]
         else:
-          result[page].append(t_matrix.tolist())
+          result[page].append((t_matrix.tolist(),info))
     return result
 
   def __get_embedding_text(self):
     page_text = {}
     for p in range(len(self.pages)):
-      page_text[p] = extract_text(self.pages[p])
+      page_text[p] = self.extract_text(self.pages[p])
     return page_text
+
+  def extract_text(self,page):
+    content_divs = page.select(".pc > div")
+    if not content_divs: return
+    text = ''
+    for div in content_divs:
+      div_class = div['class'] # list type
+      div_type = div_class[0]
+      if div_type == 't':
+        text += div.get_text()
+    return text
+
+  # return html pages
+  def load_html(self,filename):
+    lines = []
+    with io.open(filename,'r',encoding='utf-8') as f:
+      for line in f:
+        lines.append(line.strip())
+    html = ''.join(lines)
+    soup = BeautifulSoup(html,'html.parser')
+    pages = soup.select("#page-container > div")
+    return pages
+
+  def extract_table_divs(self,page):
+    content_divs = page.select(".pc > div")
+    if not content_divs: return
+    div_type_list = []
+    for div in content_divs:
+      div_class = div['class'] # list type
+      div_type = div_class[0]
+      div_type_list.append(div_type)
+    table_ranges = self.find_continue_list(div_type_list)
+    if not table_ranges: return
+    tables = []; description = ''
+    for r in table_ranges:
+      tables.append(content_divs[r[0]:r[1]])
+    return tables
+
+  # find table range,return the range [start:end] list of tables
+  def find_continue_list(self,type_list):
+    table_range_list = []
+    if not type_list: return
+    start = 0
+    while start<len(type_list)-1:
+      # pdb.set_trace()
+      if type_list[start] == "c":
+        end = start+1
+        for j in range(start+1,len(type_list)):
+          if type_list[j] == "t":
+            end = j
+            if end - start > 1: table_range_list.append([start,end])
+            break
+        if j == len(type_list)-1:
+          if type_list[j] == "c": table_range_list.append([start,j+1])
+          break
+        start = end
+      start += 1
+    return table_range_list
+
+  # remove the div neither x nor y is the same as the others'
+  def remove_single_div(self,table_divs):
+    x_start = table_divs[0]['class'][1]
+    count_y = {}
+    count_x = {}
+    for div in table_divs:
+      x = div['class'][1]
+      y = div['class'][2]
+      if x not in count_x:
+        count_x[x] = 1
+      else:
+        count_x[x] += 1
+      if y not in count_y:
+        count_y[y] = 1
+      else:
+        count_y[y] += 1
+
+    break_point = []
+    i = 0
+    for div in table_divs:
+      x = div['class'][1]
+      y = div['class'][2]
+      if count_x[x] == 1 and count_y[y] == 1:
+        break_point.append(i)
+      i += 1
+
+    for j in range(len(break_point)):
+      p = break_point[j]
+      if j == len(break_point)-1: table_divs = table_divs[:p]
+      else: table_divs = table_divs[:p]+ table_divs[p+1:]
+    return table_divs
+
+  # find the bound of the table
+  def clean_table_divs(self,table_divs):
+    table_divs = self.remove_single_div(table_divs)
+    table,spare = [],[]
+    if table_divs:
+      first_x = table_divs[0]['class'][1]
+      first_x_point = []
+      for i in range(len(table_divs)):
+        div = table_divs[i]
+        x = div['class'][1]
+        y = div['class'][2]
+        if x == first_x:
+          first_x_point.append(i)
+      print('first_x_point: '+str(first_x_point))
+
+      # find the last cell of the table
+      if len(first_x_point)>1:
+        last_row_div = table_divs[first_x_point[-1]]
+        last_y = last_row_div['class'][2]
+        last_div_y = table_divs[-1]['class'][2]
+        end_point = first_x_point[-1]
+        if last_div_y == last_y: return table_divs,[]
+        for d in range(first_x_point[-1],len(table_divs)):
+          cur_y = table_divs[d]['class'][2]
+          pre_div_y = table_divs[d-1]['class'][2]
+          if cur_y != last_y and pre_div_y == last_y:
+            end_point = d
+        table = table_divs[:end_point]
+        spare = table_divs[end_point:]
+      else:
+        print('first_x_point is too small: '+str(first_x_point))
+    return table,spare
+
+  def get_table_info(self,table,page):
+    table_info = []
+    first_cell_class = ' '.join(table[0]['class'])
+    first_cell_soup = self.pages[page].find('div',{"class":first_cell_class})
+    if first_cell_soup:
+      info_divs = first_cell_soup.previous_siblings
+      count_info = 0
+      for info_div in info_divs:
+        if count_info == 2: break
+        table_info.append(info_div.text)
+        count_info += 1
+    table_info.reverse()
+    info = ' '.join(table_info)
+    return info
+
+  def all_tables(self,table_divs):
+    table_divs = self.remove_single_div(table_divs)
+    tables = []
+    while len(table_divs)>1:
+      table,table_divs = self.clean_table_divs(table_divs)
+      if table: tables.append(table)
+    return tables
 
   def write_table_csv(self,output_path):
     sort_page = [p for p in self.tables.keys()]
     sort_page.sort()
     for page in sort_page:
       table_list = self.tables[page]
-      for t in table_list:
+      for table in table_list:
+        t = table[0]
+        info = table[1]
         r_list = [['']*len(t[0])]
-        r_list.append(['page:'+str(page)]+['']*(len(t[0])-1))
+        r_list.append(['page:'+str(page),info]+['']*(len(t[0])-2))
         r_list.extend(t)
         with open(output_path,'a') as f:
           a = csv.writer(f,delimiter=',')
@@ -398,27 +413,32 @@ class Pdf2Table(object):
       t_list.append([''])
       t_list.append(['page:'+str(page)])
       t_list.append([text])
+      if text:
+        summary = hanlp.TextSummarization(text,3)
+        key_words = hanlp.Keyword(text,10)
+        t_list.append(summary)
+        t_list.append(key_words)
     with open(txt_path,'w') as f:
       t = csv.writer(f,delimiter=',')
       t.writerows(t_list)
 
 
 
-def pdf2html(dest_dir,filename):
+def pdf2html_bash(dest_dir,filename):
   command = "pdf2htmlEX --zoom 1.3 --dest-dir '"+dest_dir+"' '"+filename+"'"
   print(command)
   os.system(command)
 
 def go(input_pdf_dir='./sample/test/pdf/',html_dir='./sample/test/html/',output_table_dir='./sample/test/table/',output_text_dir='./sample/test/text/'):
   # pdf to html
-  for dirname,dirnames,filenames in os.walk(input_pdf_dir):
-    for filename in filenames:
-      if filename.endswith('.pdf'):
-        newname = filename.replace(' ','')
-        os.rename(os.path.join(dirname,filename),os.path.join(dirname,newname))
-        input_pdf = os.path.join(dirname,newname)
-        print('input pdf: '+input_pdf)
-        pdf2html(html_dir,input_pdf)
+  # for dirname,dirnames,filenames in os.walk(input_pdf_dir):
+  #   for filename in filenames:
+  #     if filename.endswith('.pdf'):
+  #       newname = filename.replace(' ','')
+  #       os.rename(os.path.join(dirname,filename),os.path.join(dirname,newname))
+  #       input_pdf = os.path.join(dirname,newname)
+  #       print('input pdf: '+input_pdf)
+  #       pdf2html_bash(html_dir,input_pdf)
 
   # html to csv
   for dirname,dirnames,filenames in os.walk(html_dir):
