@@ -210,7 +210,7 @@ class Table(object):
 class Pdf2Table(object):
   """docstring for Table"""
   def __init__(self,pdf_path):
-    self.pages = self.load_html(pdf_path)
+    self.html,self.pages = self.load_html(pdf_path)
     self.tables = self.__get_embedding_tables()
     self.text = self.__get_embedding_text()
 
@@ -227,7 +227,7 @@ class Pdf2Table(object):
     for page,tables in page_tables.items():
       print(page)
       for t in tables:
-        # if page == 214: pdb.set_trace()
+        # if page == 57: pdb.set_trace()
         t_matrix = Table(t).table2matrix()
         # pdb.set_trace()
         info = self.get_table_info(t,page)
@@ -239,19 +239,57 @@ class Pdf2Table(object):
 
   def __get_embedding_text(self):
     page_text = {}
+    segment = [' ']
+    document = ''
     for p in range(len(self.pages)):
       page_text[p] = self.extract_text(self.pages[p])
-    return page_text
+      if page_text[p]: document += page_text[p]
+    paragraphs = []
+    if document:
+      paragraphs = document.split(' ')
+    return paragraphs
+
+  def get_div_bottom(self,css_class,endstr):
+    bottom = ''
+    if css_class:
+      query = '.'+css_class+'{bottom:'
+      start = self.html.find(query)
+      if start != -1:
+        start += len(query)
+        end = self.html.find(endstr,start)
+        bottom = self.html[start:end]
+        bottom = bottom[:len(bottom)-2]
+    return bottom
 
   def extract_text(self,page):
     content_divs = page.select(".pc > div")
     if not content_divs: return
-    text = ''
-    for div in content_divs:
+    div_bottom = {}
+    for i in range(len(content_divs)):
+      div = content_divs[i]
       div_class = div['class'] # list type
       div_type = div_class[0]
-      if div_type == 't':
-        text += div.get_text()
+      div_y = ''
+      for c in div_class:
+        if 'y' in c: div_y = c
+      if div_y:
+        bottom = self.get_div_bottom(div_y,';}')
+        div_bottom[i] = float(bottom)
+    start_div = len(content_divs)
+    for i in range(len(content_divs)-1):
+      if i in div_bottom and i+1 in div_bottom:
+        cur_div = div_bottom[i]
+        next_div = div_bottom[i+1]
+        if next_div-cur_div>500: # if div distance big than 500px,so that the current div is the page
+          start_div = i+1
+          break
+    text = ''
+    for j in range(start_div,len(content_divs)):
+      if content_divs[j]['class'][0] == 't':
+        content = content_divs[j].get_text()
+        if content and content.strip() != '':
+          content = content[:len(content)-1].replace(' ','')+content[-1]
+          text += content
     return text
 
   # return html pages
@@ -263,7 +301,7 @@ class Pdf2Table(object):
     html = ''.join(lines)
     soup = BeautifulSoup(html,'html.parser')
     pages = soup.select("#page-container > div")
-    return pages
+    return html,pages
 
   def extract_table_divs(self,page):
     content_divs = page.select(".pc > div")
@@ -405,22 +443,31 @@ class Pdf2Table(object):
           a.writerows(r_list)
 
   def write_text_txt(self,txt_path):
-    sort_page = [p for p in self.text.keys()]
-    sort_page.sort()
-    t_list = []
-    for page in sort_page:
-      text = self.text[page]
-      t_list.append([''])
-      t_list.append(['page:'+str(page)])
-      t_list.append([text])
-      if text:
-        summary = hanlp.TextSummarization(text,3)
-        key_words = hanlp.Keyword(text,10)
+    # sort_page = [p for p in self.text.keys()]
+    # sort_page.sort()
+    # t_list = []
+    # for page in sort_page:
+    #   text = self.text[page]
+    #   t_list.append([''])
+    #   t_list.append(['page:'+str(page)])
+    #   t_list.append([text])
+    #   if text:
+    #     summary = hanlp.TextSummarization(text,3)
+    #     key_words = hanlp.Keyword(text,10)
+    #     t_list.append(summary)
+    #     t_list.append(key_words)
+    if self.text:
+      t_list = []
+      for t in self.text:
+        t_list.append([' '])
+        t_list.append([t])
+        summary = hanlp.TextSummarization(t,4)
+        key_words = hanlp.Keyword(t,4)
         t_list.append(summary)
         t_list.append(key_words)
-    with open(txt_path,'w') as f:
-      t = csv.writer(f,delimiter=',')
-      t.writerows(t_list)
+      with open(txt_path,'w') as f:
+        t = csv.writer(f,delimiter=',')
+        t.writerows(t_list)
 
 
 
@@ -456,4 +503,19 @@ def go(input_pdf_dir='./sample/test/pdf/',html_dir='./sample/test/html/',output_
 if __name__ == "__main__":
   print('begin')
   go()
+
+def load_html(filename):
+  lines = []
+  with io.open(filename,'r',encoding='utf-8') as f:
+    for line in f:
+      lines.append(line.strip())
+  html = ''.join(lines)
+  # soup = BeautifulSoup(html,'html.parser')
+  # import cssutils
+  # sheets = []
+  # for styletag in soup.findAll('style',type='text/css'):
+  #   if not styletag.string:
+  #    continue
+  #   sheets.append(cssutils.parseStyle(styletag.string))
+  return html
 
