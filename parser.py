@@ -107,13 +107,19 @@ class Row(object):
         if cell.next.x not in self.x_sequence: break
         next_x = self.x_sequence.index(cell.next.x)
         if next_x<=cur_x: next_x = len(self.x_sequence)
-      cur_y = self.y_sequence.index(cell.y) # row
-      for i in range(cur_y+1):
-        for j in range(cur_x,next_x):
+      cur_y = self.y_sequence.index(cell.y)
+
+      for i in range(cur_y+1): #row
+        for j in range(cur_x,next_x): # column
           if matrix[offset+i][j] == '':
-            if cell.text[0] in excel_forbidden_sign: # filter for excel forbidden string
-              matrix[offset+i][j] = ' '+cell.text
-            else: matrix[offset+i][j] = cell.text
+            if cur_y == i and cur_x == next_x-1:
+              if cell.text[0] in excel_forbidden_sign: # filter for excel forbidden string
+                matrix[offset+i][j] = ' '+cell.text
+              else: matrix[offset+i][j] = cell.text
+            else:
+              if cell.text[0] in excel_forbidden_sign: # filter for excel forbidden string
+                matrix[offset+i][j] = ' '+cell.text+"#merge#"
+              else: matrix[offset+i][j] = cell.text+"#merge#"
     self.matrix = matrix # if cell is not in sequence, return the matrix with ''
     return matrix
 
@@ -229,7 +235,6 @@ class Pdf2Table(object):
       for t in tables:
         # if page == 57: pdb.set_trace()
         t_matrix = Table(t).table2matrix()
-        # pdb.set_trace()
         info = self.get_table_info(t,page)
         if page not in result:
           result[page] = [(t_matrix.tolist(),info)]
@@ -384,7 +389,7 @@ class Pdf2Table(object):
         y = div['class'][2]
         if x == first_x:
           first_x_point.append(i)
-      print('first_x_point: '+str(first_x_point))
+      # print('first_x_point: '+str(first_x_point))
 
       # find the last cell of the table
       if len(first_x_point)>1:
@@ -400,8 +405,8 @@ class Pdf2Table(object):
             end_point = d
         table = table_divs[:end_point]
         spare = table_divs[end_point:]
-      else:
-        print('first_x_point is too small: '+str(first_x_point))
+      # else:
+      #   print('first_x_point is too small: '+str(first_x_point))
     return table,spare
 
   def get_table_info(self,table,page):
@@ -443,79 +448,61 @@ class Pdf2Table(object):
           a.writerows(r_list)
 
   def write_text_txt(self,txt_path):
-    # sort_page = [p for p in self.text.keys()]
-    # sort_page.sort()
-    # t_list = []
-    # for page in sort_page:
-    #   text = self.text[page]
-    #   t_list.append([''])
-    #   t_list.append(['page:'+str(page)])
-    #   t_list.append([text])
-    #   if text:
-    #     summary = hanlp.TextSummarization(text,3)
-    #     key_words = hanlp.Keyword(text,10)
-    #     t_list.append(summary)
-    #     t_list.append(key_words)
     if self.text:
       t_list = []
+      document = ''
       for t in self.text:
-        t_list.append([' '])
-        t_list.append([t])
-        summary = hanlp.TextSummarization(t,4)
-        key_words = hanlp.Keyword(t,4)
+        # t_list.append([' '])
+        # t_list.append([t])
+        # summary = hanlp.TextSummarization(t,4)
+        # key_words = hanlp.Keyword(t,4)
+        # t_list.append(summary)
+        # t_list.append(key_words)
+        document += t+'\n'
+      if document:
+        print('Generating text summary and Extracting text keywords')
+        summary = hanlp.TextSummarization(document,10)
+        key_words = hanlp.Keyword(document,10)
+        t_list.append([document])
         t_list.append(summary)
         t_list.append(key_words)
       with open(txt_path,'w') as f:
-        t = csv.writer(f,delimiter=',')
-        t.writerows(t_list)
+        k = csv.writer(f,delimiter=',')
+        k.writerows(t_list)
 
 
 
 def pdf2html_bash(dest_dir,filename):
   command = "pdf2htmlEX --zoom 1.3 --dest-dir '"+dest_dir+"' '"+filename+"'"
-  print(command)
+  # print(command)
   os.system(command)
 
-def go(input_pdf_dir='./sample/test/pdf/',html_dir='./sample/test/html/',output_table_dir='./sample/test/table/',output_text_dir='./sample/test/text/'):
+def go(input_pdf_dir='./demo/pdf/',html_dir='./demo/html/',output_table_dir='./demo/table/',output_text_dir='./demo/text/'):
   # pdf to html
-  # for dirname,dirnames,filenames in os.walk(input_pdf_dir):
-  #   for filename in filenames:
-  #     if filename.endswith('.pdf'):
-  #       newname = filename.replace(' ','')
-  #       os.rename(os.path.join(dirname,filename),os.path.join(dirname,newname))
-  #       input_pdf = os.path.join(dirname,newname)
-  #       print('input pdf: '+input_pdf)
-  #       pdf2html_bash(html_dir,input_pdf)
+  for dirname,dirnames,filenames in os.walk(input_pdf_dir):
+    for filename in filenames:
+      if filename.endswith('.pdf'):
+        newname = filename.replace(' ','')
+        os.rename(os.path.join(dirname,filename),os.path.join(dirname,newname))
+        input_pdf = os.path.join(dirname,newname)
+        print('input pdf: '+input_pdf)
+        pdf2html_bash(html_dir,input_pdf)
 
   # html to csv
   for dirname,dirnames,filenames in os.walk(html_dir):
     for filename in filenames:
       if filename.endswith('.html'):
         input_html = os.path.join(dirname,filename)
-        print(input_html)
+        # print(input_html)
         h = Pdf2Table(input_html)
         output_filename = filename[:-5]+'.csv'
         table_path = output_table_dir+output_filename
         text_path = output_text_dir+output_filename
+        print('write csv file')
         h.write_table_csv(table_path)
         h.write_text_txt(text_path)
 
 if __name__ == "__main__":
   print('begin')
   go()
-
-def load_html(filename):
-  lines = []
-  with io.open(filename,'r',encoding='utf-8') as f:
-    for line in f:
-      lines.append(line.strip())
-  html = ''.join(lines)
-  # soup = BeautifulSoup(html,'html.parser')
-  # import cssutils
-  # sheets = []
-  # for styletag in soup.findAll('style',type='text/css'):
-  #   if not styletag.string:
-  #    continue
-  #   sheets.append(cssutils.parseStyle(styletag.string))
-  return html
-
+  print('end')
