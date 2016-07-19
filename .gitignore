@@ -2,4 +2,6 @@
 /demo
 /__pycache__
 /sample
+/test
+/debug
 *.pyc

@@ -8,6 +8,7 @@ from py4j.java_gateway import JavaGateway
 import table_structure
 from openpyxl.workbook import Workbook
 import xlwt
+import util
 
 hanlp = JavaGateway().entry_point
 
@@ -15,26 +16,31 @@ class Pdf2Table(object):
   """docstring for Table"""
   def __init__(self,pdf_path):
     self.html,self.pages = self.load_html(pdf_path)
-    # self.tables = self.__get_embedding_tables()
+    self.page_tables = self.__get_page_tables()
     self.text = self.__get_embedding_text()
+    # self.tables = self.__get_embedding_tables()
 
-  def write_table(self,path):
+  def __get_page_tables(self):
     page_tables = {} # rude_table per page
     for p in range(len(self.pages)):
+      # pdb.set_trace()
       rude_tables = self.extract_table_divs(self.pages[p])
       if rude_tables:
         page_tables[p] =[]
         for t in rude_tables:
           page_tables[p].extend(self.all_tables(t))
-    if not page_tables: return
+    return page_tables
+
+  def write_table(self,path):
+    if not self.page_tables: return
     # page sort
-    sort_page = [p for p in page_tables.keys()]
+    sort_page = [p for p in self.page_tables.keys()]
     sort_page.sort()
     # set cell covers
     i = 1
     for page in sort_page:
-      tables = page_tables[page]
-      page_tables[page] = []
+      tables = self.page_tables[page]
+      self.page_tables[page] = []
       for t in tables:
         info = self.get_table_info(t,page)
         tt = table_structure.Table(t)
@@ -42,45 +48,43 @@ class Pdf2Table(object):
         tt.set_table_cells(i)
         # pdb.set_trace()
         i += tt.size[0]+2
-        page_tables[page].append(tt)
-    # write tables in csv
+        self.page_tables[page].append(tt)
+    # write tables in excel
     wb = xlwt.Workbook()
     sheet = wb.add_sheet('tables',cell_overwrite_ok=True)
     j = 0
     for page in sort_page:
-      tables = page_tables[page]
+      tables = self.page_tables[page]
       for table in tables:
-        # pdb.set_trace()
         sheet.write(j,0,"page "+str(page+1))
         sheet.write(j,1,table.info)
         j += table.size[0]+2
         for cell in table.cells:
           if cell.covers:
             if len(cell.covers)>1:
-              # pdb.set_trace()
               top_row = cell.covers[0][0]
               bottom_row = cell.covers[-1][0]
               left_column = cell.covers[0][1]
               right_column = cell.covers[-1][1]
-              sheet.write_merge(top_row, bottom_row, left_column, right_column, cell.text)
+              if util.is_number(cell.text): # if cell.text is number, save in number style
+                content = cell.text.replace(',','')
+                sheet.write_merge(top_row, bottom_row, left_column, right_column, float(content))
+              else:
+                sheet.write_merge(top_row, bottom_row, left_column, right_column, cell.text)
             else:
-              sheet.write(cell.covers[0][0],cell.covers[0][1],cell.text)
+              if util.is_number(cell.text):
+                content = cell.text.replace(',','')
+                sheet.write(cell.covers[0][0],cell.covers[0][1],float(content))
+              else:
+                sheet.write(cell.covers[0][0],cell.covers[0][1],cell.text)
     wb.save(path)
 
   def __get_embedding_tables(self):
-    page_tables = {} # rude_table per page
-    for p in range(len(self.pages)):
-      rude_tables = self.extract_table_divs(self.pages[p])
-      if rude_tables:
-        page_tables[p] =[]
-        for t in rude_tables:
-          page_tables[p].extend(self.all_tables(t))
-
+    if not self.page_tables: return
     result = {} # all tables per page
-    for page,tables in page_tables.items():
+    for page,tables in self.page_tables.items():
       print(page)
       for t in tables:
-        # if page == 57: pdb.set_trace()
         t_matrix = table_structure.Table(t).table2matrix()
         info = self.get_table_info(t,page)
         if page not in result:
@@ -207,7 +211,6 @@ class Pdf2Table(object):
         count_y[y] = 1
       else:
         count_y[y] += 1
-
     break_point = []
     i = 0
     for div in table_divs:
@@ -216,12 +219,17 @@ class Pdf2Table(object):
       if count_x[x] == 1 and count_y[y] == 1:
         break_point.append(i)
       i += 1
-
-    for j in range(len(break_point)):
-      p = break_point[j]
-      if j == len(break_point)-1: table_divs = table_divs[:p]
-      else: table_divs = table_divs[:p]+ table_divs[p+1:]
-    return table_divs
+    # pdb.set_trace()
+    origin_len = len(table_divs)
+    # for j in range(len(break_point)):
+    #   p = break_point[j]
+    #   if len(break_point) != 1 and p == origin_len-1: first_clean_divs = table_divs[:p]
+    #   else: first_clean_divs = table_divs[:p]+ table_divs[p+1:]
+    first_clean_divs = []
+    for d in range(len(table_divs)):
+      if d not in break_point:
+        first_clean_divs.append(table_divs[d])
+    return first_clean_divs
 
   # find the bound of the table
   def clean_table_divs(self,table_divs):
@@ -301,7 +309,7 @@ class Pdf2Table(object):
       for t in self.text:
         document += t+'\n'
       if document:
-        print('Generating text summary and Extracting text keywords')
+        print('------Generating text summary and Extracting text keywords------')
         summary = hanlp.TextSummarization(document,10)
         key_words = hanlp.Keyword(document,10)
         t_list.append([document])
@@ -317,7 +325,7 @@ def pdf2html_bash(dest_dir,filename):
   command = "pdf2htmlEX --zoom 1.3 --dest-dir '"+dest_dir+"' '"+filename+"'"
   os.system(command)
 
-def go(input_pdf_dir='./demo/pdf/missing/',html_dir='./demo/html/',output_table_dir='./demo/table/',output_text_dir='./demo/text/'):
+def go(input_pdf_dir='./debug/',page_count_path='./page_count.csv'):
   # pdf to html
   for dirname,dirnames,filenames in os.walk(input_pdf_dir):
     for filename in filenames:
@@ -336,6 +344,7 @@ def go(input_pdf_dir='./demo/pdf/missing/',html_dir='./demo/html/',output_table_
 
   # html to csv
   html_dir = input_pdf_dir+"html/"
+  page_count = []
   for dirname,dirnames,filenames in os.walk(html_dir):
     for filename in filenames:
       if filename.endswith('.html'):
@@ -343,6 +352,7 @@ def go(input_pdf_dir='./demo/pdf/missing/',html_dir='./demo/html/',output_table_
         print(input_html)
         h = Pdf2Table(input_html)
         output_filename = filename[:-5]
+        page_count.append((output_filename,len(h.pages)))
         output_dir = input_pdf_dir+"ouput/"+dirname[len(input_pdf_dir):]
         if not os.path.exists(output_dir):
           os.makedirs(output_dir)
@@ -352,6 +362,10 @@ def go(input_pdf_dir='./demo/pdf/missing/',html_dir='./demo/html/',output_table_
         # h.write_table_csv(table_path)
         h.write_table(table_path)
         h.write_text_txt(text_path)
+  with open(page_count_path,'w') as f:
+    k = csv.writer(f,delimiter=',')
+    k.writerows(page_count)
+
 
 if __name__ == "__main__":
   print('begin')

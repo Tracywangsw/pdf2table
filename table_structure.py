@@ -91,6 +91,10 @@ class Row(object):
         if cur_cell.x not in x_sequence and pre_cell.x in x_sequence:
           index = x_sequence.index(pre_cell.x)+1
           x_sequence = x_sequence[:index] + [cur_cell.x]
+    # if cell.x not in x_sequence, add it in the tail
+    for cell in self.cells:
+      if cell.x not in x_sequence:
+        x_sequence.append(cell.x)
     return x_sequence
 
   def set_matrix(self,subrow_num,subcol_num,offset):
@@ -210,11 +214,19 @@ class Table(object):
     return rows
 
   def __get_table_size(self):
-    x_sequence = self.rows[0].x_sequence
-    max_x_sequence = x_sequence
+    # find the right x_sequence with the most cells
+    max_x_sequence = self.rows[0].x_sequence # init with the first row
     for row in self.rows:
-      if len(row.x_sequence)>len(max_x_sequence):
-        max_x_sequence = row.x_sequence
+      # if len(row.x_sequence)>len(max_x_sequence):
+      #   max_x_sequence = row.x_sequence
+      for i in range(1,len(row.x_sequence)):
+        cur_x = row.x_sequence[i]
+        pre_x = row.x_sequence[i-1]
+        if cur_x not in max_x_sequence and pre_x in max_x_sequence:
+          pre_index = max_x_sequence.index(pre_x)
+          if pre_index == len(max_x_sequence)-1: max_x_sequence.append(cur_x)
+          else:
+            max_x_sequence = max_x_sequence[:pre_index+1]+[cur_x]+max_x_sequence[pre_index+1:]
     matrix_row_num = 0
     for row in self.rows:
       matrix_row_num += len(row.y_sequence)
