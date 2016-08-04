@@ -68,13 +68,19 @@ class Pdf2Table(object):
               right_column = cell.covers[-1][1]
               if util.is_number(cell.text): # if cell.text is number, save in number style
                 content = cell.text.replace(',','')
-                sheet.write_merge(top_row, bottom_row, left_column, right_column, float(content))
+                if content.isdigit():
+                  sheet.write_merge(top_row, bottom_row, left_column, right_column, float(content))
+                else:
+                  sheet.write_merge(top_row, bottom_row, left_column, right_column, cell.text)
               else:
                 sheet.write_merge(top_row, bottom_row, left_column, right_column, cell.text)
             else:
               if util.is_number(cell.text):
                 content = cell.text.replace(',','')
-                sheet.write(cell.covers[0][0],cell.covers[0][1],float(content))
+                if content.isdigit():
+                  sheet.write(cell.covers[0][0],cell.covers[0][1],float(content))
+                else:
+                  sheet.write(cell.covers[0][0],cell.covers[0][1],cell.text)
               else:
                 sheet.write(cell.covers[0][0],cell.covers[0][1],cell.text)
     wb.save(path)
@@ -310,11 +316,11 @@ class Pdf2Table(object):
         document += t+'\n'
       if document:
         print('------Generating text summary and Extracting text keywords------')
-        summary = hanlp.TextSummarization(document,10)
-        key_words = hanlp.Keyword(document,10)
+        # summary = hanlp.TextSummarization(document,10)
+        # key_words = hanlp.Keyword(document,10)
         t_list.append([document])
-        t_list.append(summary)
-        t_list.append(key_words)
+        # t_list.append(summary)
+        # t_list.append(key_words)
       with open(txt_path,'w') as f:
         k = csv.writer(f,delimiter=',')
         k.writerows(t_list)
@@ -325,22 +331,22 @@ def pdf2html_bash(dest_dir,filename):
   command = "pdf2htmlEX --zoom 1.3 --dest-dir '"+dest_dir+"' '"+filename+"'"
   os.system(command)
 
-def go(input_pdf_dir='./debug/',page_count_path='./page_count.csv'):
+def go(input_pdf_dir='./demo/补充清单/',page_count_path='./补充清单_page_count.csv'):
   # pdf to html
-  for dirname,dirnames,filenames in os.walk(input_pdf_dir):
-    for filename in filenames:
-      if filename.endswith('.pdf'):
-        newname = filename.replace(' ','')
-        os.rename(os.path.join(dirname,filename),os.path.join(dirname,newname))
-        input_pdf = os.path.join(dirname,newname)
-        print('input pdf: '+input_pdf)
-        print(dirname)
-        start = len(input_pdf_dir)
-        newdir = dirname[start:]
-        input_dir = input_pdf_dir+"html/"+newdir
-        if not os.path.exists(input_dir):
-          os.makedirs(input_dir)
-        pdf2html_bash(input_dir,input_pdf)
+  # for dirname,dirnames,filenames in os.walk(input_pdf_dir):
+  #   for filename in filenames:
+  #     if filename.endswith('.pdf'):
+  #       newname = filename.replace(' ','')
+  #       os.rename(os.path.join(dirname,filename),os.path.join(dirname,newname))
+  #       input_pdf = os.path.join(dirname,newname)
+  #       print('input pdf: '+input_pdf)
+  #       print(dirname)
+  #       start = len(input_pdf_dir)
+  #       newdir = dirname[start:]
+  #       input_dir = input_pdf_dir+"html/"+newdir
+  #       if not os.path.exists(input_dir):
+  #         os.makedirs(input_dir)
+  #       pdf2html_bash(input_dir,input_pdf)
 
   # html to csv
   html_dir = input_pdf_dir+"html/"
@@ -350,18 +356,20 @@ def go(input_pdf_dir='./debug/',page_count_path='./page_count.csv'):
       if filename.endswith('.html'):
         input_html = os.path.join(dirname,filename)
         print(input_html)
-        h = Pdf2Table(input_html)
         output_filename = filename[:-5]
-        page_count.append((output_filename,len(h.pages)))
-        output_dir = input_pdf_dir+"ouput/"+dirname[len(input_pdf_dir):]
+        output_dir = input_pdf_dir+"output/"+dirname[len(input_pdf_dir):]
         if not os.path.exists(output_dir):
           os.makedirs(output_dir)
         table_path = output_dir+"/table-"+output_filename+'.xls'
         text_path = output_dir+"/text-"+output_filename+'.csv'
-        print('write csv file')
-        # h.write_table_csv(table_path)
-        h.write_table(table_path)
-        h.write_text_txt(text_path)
+        if not os.path.isfile(table_path) and not os.path.isfile(text_path):
+          h = Pdf2Table(input_html)
+          page_count.append((output_filename,len(h.pages)))
+          print('write file')
+          h.write_table(table_path)
+          h.write_text_txt(text_path)
+        else:
+          print('table and text have already existed!')
   with open(page_count_path,'w') as f:
     k = csv.writer(f,delimiter=',')
     k.writerows(page_count)
